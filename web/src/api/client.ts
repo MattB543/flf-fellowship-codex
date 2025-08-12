@@ -260,9 +260,9 @@ export async function summarizeMessages(
     throw new ApiError(400, "Cannot summarize more than 100 messages at once");
   }
 
-  const payload: { messageIds: number[]; search_query?: string } = { messageIds };
+  const payload: { messageIds: number[]; searchQuery?: string } = { messageIds };
   if (searchQuery) {
-    payload.search_query = searchQuery;
+    payload.searchQuery = searchQuery;
   }
 
   return api("/api/summarize", payload) as Promise<SummarizeResponse>;

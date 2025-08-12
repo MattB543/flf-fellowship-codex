@@ -20,7 +20,6 @@ import {
   NEllipsis,
   NBadge,
   NModal,
-  NScrollbar,
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import {
@@ -58,6 +57,63 @@ const errorMessage = ref<string | null>(null);
 // Always summarize all results - no longer needed
 // const summarizeCount = ref(30);
 const showSummaryModal = ref(false);
+
+// Parse markdown summary to HTML
+const parsedSummary = computed(() => {
+  if (!summaryText.value) return '';
+  
+  // Convert markdown bullets to HTML list
+  let html = summaryText.value;
+  
+  // Check if it's a bulleted list
+  const lines = html.split('\n');
+  const bulletLines = lines.filter(line => line.trim().startsWith('- ') || line.trim().startsWith('* '));
+  
+  if (bulletLines.length > 0) {
+    // Convert to HTML list
+    const listItems = lines.map(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        return `<li>${trimmed.substring(2)}</li>`;
+      } else if (trimmed) {
+        // Non-bullet lines become paragraphs
+        return `<p>${trimmed}</p>`;
+      }
+      return '';
+    }).filter(item => item);
+    
+    // Wrap consecutive list items in <ul>
+    let result = [];
+    let inList = false;
+    
+    for (const item of listItems) {
+      if (item.startsWith('<li>')) {
+        if (!inList) {
+          result.push('<ul>');
+          inList = true;
+        }
+        result.push(item);
+      } else {
+        if (inList) {
+          result.push('</ul>');
+          inList = false;
+        }
+        result.push(item);
+      }
+    }
+    
+    if (inList) {
+      result.push('</ul>');
+    }
+    
+    html = result.join('\n');
+  } else {
+    // Just convert line breaks to <br> for non-list content
+    html = html.replace(/\n/g, '<br>');
+  }
+  
+  return html;
+});
 
 // Computed
 const hasResults = computed(() => results.value.length > 0);
@@ -504,7 +560,7 @@ function closeSummaryModal() {
         </template>
 
         <template v-else-if="summaryText">
-          <div class="summary-text">{{ summaryText }}</div>
+          <div class="summary-content" v-html="parsedSummary"></div>
         </template>
       </div>
 
@@ -569,14 +625,36 @@ function closeSummaryModal() {
   align-items: center;
 }
 
-.summary-text {
-  white-space: pre-wrap;
+.summary-content {
   line-height: 1.6;
   width: 100%;
   max-height: 400px;
   overflow-y: auto;
-  padding: 12px;
+  padding: 16px;
   background: var(--n-color-embedded);
   border-radius: 6px;
+}
+
+.summary-content ul {
+  margin: 0;
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.summary-content li {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+
+.summary-content p {
+  margin: 12px 0;
+}
+
+.summary-content p:first-child {
+  margin-top: 0;
+}
+
+.summary-content p:last-child {
+  margin-bottom: 0;
 }
 </style>
