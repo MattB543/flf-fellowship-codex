@@ -17,10 +17,10 @@ import {
   NIcon,
   useMessage,
   useLoadingBar,
-  DataTableColumns,
   NTooltip,
   NEllipsis,
 } from "naive-ui";
+import type { DataTableColumns } from "naive-ui";
 import {
   LinkOutline,
   PersonOutline,
@@ -32,7 +32,7 @@ import {
 import { format } from "date-fns";
 import { fetchLinks } from "@/api/client";
 import ThreadPreview from "@/components/ThreadPreview.vue";
-import { ensureThread, ingestRow } from "@/stores/threadCache";
+import { ingestRow } from "@/stores/threadCache";
 
 type LinkItem = Awaited<ReturnType<typeof fetchLinks>> extends {
   links: infer R;
@@ -144,10 +144,9 @@ const columns: DataTableColumns<LinkItem> = [
     key: "url",
     render(row) {
       // Extract domain from URL for display
-      let domain = row.url;
       try {
         const url = new URL(row.url);
-        domain = url.hostname;
+        url.hostname; // Just to validate URL
       } catch {}
 
       return h(

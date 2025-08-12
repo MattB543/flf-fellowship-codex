@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { h, computed, ref, onMounted } from "vue";
+import { h, computed, onMounted } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import {
   NConfigProvider,
   NLayout,
   NLayoutHeader,
   NLayoutContent,
-  NSpace,
   NMenu,
   NButton,
   NIcon,
@@ -16,9 +15,8 @@ import {
   NLoadingBarProvider,
   darkTheme,
   lightTheme,
-  GlobalThemeOverrides,
-  MenuOption,
 } from "naive-ui";
+import type { GlobalThemeOverrides, MenuOption } from "naive-ui";
 import {
   SearchOutline,
   LinkOutline,

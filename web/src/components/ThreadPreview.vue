@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
-import { ensureThread, getCached, type ThreadKey } from "@/stores/threadCache";
+import { ensureThread } from "@/stores/threadCache";
 import type { ThreadMessage } from "@/api/client";
 
 const props = defineProps<{

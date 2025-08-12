@@ -5,9 +5,14 @@ const TOKEN = import.meta.env.VITE_API_TOKEN as string | undefined;
 
 // Custom error class for API errors
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public details?: any) {
+  status: number;
+  details?: any;
+  
+  constructor(status: number, message: string, details?: any) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
+    this.details = details;
   }
 }
 
@@ -243,7 +248,8 @@ export async function searchMessages(payload: {
 }
 
 export async function summarizeMessages(
-  messageIds: number[]
+  messageIds: number[],
+  searchQuery?: string
 ): Promise<SummarizeResponse> {
   // Validate input
   if (!messageIds || messageIds.length === 0) {
@@ -254,7 +260,12 @@ export async function summarizeMessages(
     throw new ApiError(400, "Cannot summarize more than 100 messages at once");
   }
 
-  return api("/api/summarize", { messageIds }) as Promise<SummarizeResponse>;
+  const payload: { messageIds: number[]; search_query?: string } = { messageIds };
+  if (searchQuery) {
+    payload.search_query = searchQuery;
+  }
+
+  return api("/api/summarize", payload) as Promise<SummarizeResponse>;
 }
 
 export async function fetchLinks(params: {

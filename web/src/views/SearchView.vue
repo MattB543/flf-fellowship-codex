@@ -16,19 +16,17 @@ import {
   NIcon,
   useMessage,
   useLoadingBar,
-  DataTableColumns,
   NTooltip,
   NEllipsis,
   NBadge,
   NModal,
   NScrollbar,
 } from "naive-ui";
+import type { DataTableColumns } from "naive-ui";
 import {
   SearchOutline,
   SparklesOutline,
   CopyOutline,
-  TimeOutline,
-  PersonOutline,
   ChatbubblesOutline,
 } from "@vicons/ionicons5";
 import { format } from "date-fns";
@@ -324,7 +322,7 @@ async function runSummarize() {
   try {
     // Summarize all current results
     const ids = sortedResults.value.map((r) => r.id);
-    const res = await summarizeMessages(ids);
+    const res = await summarizeMessages(ids, query.value.trim());
     summaryText.value = res.summary;
     message.success("Summary generated successfully");
     loadingBar.finish();
