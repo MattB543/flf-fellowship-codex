@@ -28,6 +28,7 @@ import {
   CopyOutline,
   ChatbubblesOutline,
   BarChartOutline,
+  OpenOutline,
 } from "@vicons/ionicons5";
 import { format } from "date-fns";
 import { searchMessages, summarizeMessages } from "@/api/client";
@@ -60,168 +61,27 @@ const errorMessage = ref<string | null>(null);
 const showSummaryModal = ref(false);
 const showEngagementModal = ref(false);
 
-// Helper function to apply markdown formatting
-function applyMarkdownFormatting(text: string): string {
-  let formatted = text;
+// Slack workspace domain for permalinks
+const SLACK_WORKSPACE_BASE = "https://aiforhumanreasoning.slack.com";
 
-  // Convert bold text (**text** or __text__) - must come before italic to avoid conflicts
-  formatted = formatted.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  formatted = formatted.replace(/__(.+?)__/g, "<strong>$1</strong>");
-
-  // Convert italic text (*text* or _text_) - only if not part of ** bold syntax
-  // Use negative lookbehind/lookahead to avoid matching ** patterns
-  formatted = formatted.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, "<em>$1</em>");
-  formatted = formatted.replace(/(?<!_)_([^_]+?)_(?!_)/g, "<em>$1</em>");
-
-  // Convert inline code (`code`)
-  formatted = formatted.replace(/`(.+?)`/g, "<code>$1</code>");
-
-  return formatted;
+function buildSlackPermalink(
+  channelId: string,
+  ts: string,
+  threadRootTs?: string | null
+): string {
+  // Slack permalink format: /archives/{channelId}/p{ts} where ts is 16 digits without dot
+  const [secStr, microStrRaw = ""] = ts.split(".");
+  const microStr = (microStrRaw + "000000").slice(0, 6);
+  const secPadded = secStr.padStart(10, "0");
+  const pTs = `${secPadded}${microStr}`;
+  const base = `${SLACK_WORKSPACE_BASE}/archives/${channelId}/p${pTs}`;
+  if (threadRootTs && threadRootTs !== ts) {
+    return `${base}?thread_ts=${threadRootTs}&cid=${channelId}`;
+  }
+  return base;
 }
 
-// Parse markdown summary to HTML
-const parsedSummary = computed(() => {
-  if (!summaryText.value) return "";
-
-  let html = summaryText.value;
-
-  // First, escape any HTML to prevent XSS
-  html = html.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  // Process lines for lists and paragraphs first (before converting markdown)
-  const lines = html.split("\n");
-
-  // First pass: analyze content structure
-  let nonBulletLines = 0;
-  let hasBullets = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    // Count non-bullet, non-empty lines (including those with ** formatting)
-    if (trimmed && !trimmed.match(/^[-*]\s+/)) {
-      nonBulletLines++;
-    }
-    if (trimmed.match(/^[-*]\s+/)) {
-      hasBullets = true;
-    }
-  }
-
-  // Determine if we should bold section headers only (when we have headers + bullets structure)
-  const hasHeaderStructure = nonBulletLines >= 2 && hasBullets;
-
-  const processedLines = [];
-  let currentList = null;
-  let currentListLevel = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Count leading spaces for nested lists (2 or 4 spaces = 1 level)
-    const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length || 0;
-    const nestLevel = Math.floor(leadingSpaces / 2);
-
-    // Check if it's a bullet point
-    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
-
-    if (bulletMatch) {
-      let content = bulletMatch[1];
-
-      // Apply markdown formatting to bullet content
-      content = applyMarkdownFormatting(content);
-
-      // Only bold top-level bullets if we DON'T have a header structure
-      if (
-        !hasHeaderStructure &&
-        nestLevel === 0 &&
-        !content.includes("<strong>")
-      ) {
-        content = `<strong>${content}</strong>`;
-      }
-
-      // Handle nested lists
-      if (currentList === null) {
-        processedLines.push('<ul class="top-level-list">');
-        currentList = "ul";
-        currentListLevel = 0;
-      }
-
-      // Adjust nesting
-      while (currentListLevel < nestLevel) {
-        processedLines.push('<ul style="margin-top: 4px;">');
-        currentListLevel++;
-      }
-      while (currentListLevel > nestLevel) {
-        processedLines.push("</ul>");
-        currentListLevel--;
-      }
-
-      processedLines.push(`<li>${content}</li>`);
-    } else if (trimmed === "") {
-      // Empty line - close any open list
-      if (currentList) {
-        while (currentListLevel > 0) {
-          processedLines.push("</ul>");
-          currentListLevel--;
-        }
-        processedLines.push("</ul>");
-        currentList = null;
-      }
-      // Skip empty lines
-    } else {
-      // Regular text - close any open list first
-      if (currentList) {
-        while (currentListLevel > 0) {
-          processedLines.push("</ul>");
-          currentListLevel--;
-        }
-        processedLines.push("</ul>");
-        currentList = null;
-      }
-
-      // Check if it's a heading
-      if (trimmed.startsWith("# ")) {
-        const content = applyMarkdownFormatting(trimmed.substring(2));
-        processedLines.push(`<h3>${content}</h3>`);
-      } else if (trimmed.startsWith("## ")) {
-        const content = applyMarkdownFormatting(trimmed.substring(3));
-        processedLines.push(`<h4>${content}</h4>`);
-      } else if (trimmed.startsWith("### ")) {
-        const content = applyMarkdownFormatting(trimmed.substring(4));
-        processedLines.push(`<h5>${content}</h5>`);
-      } else if (
-        trimmed.startsWith("**") &&
-        trimmed.endsWith("**") &&
-        trimmed.length > 4
-      ) {
-        // Bold line that is a title/header (must be longer than just ****)
-        const content = trimmed.substring(2, trimmed.length - 2);
-        processedLines.push(`<p><strong>${content}</strong></p>`);
-      } else {
-        // Apply markdown formatting
-        let content = applyMarkdownFormatting(trimmed);
-
-        // When we have headers + bullets structure, make unformatted non-bullet lines bold as section headers
-        // Note: content already has markdown applied, so ** will have been converted to <strong>
-        if (hasHeaderStructure && !content.includes("<strong>")) {
-          content = `<strong>${content}</strong>`;
-        }
-
-        processedLines.push(`<p>${content}</p>`);
-      }
-    }
-  }
-
-  // Close any remaining open lists
-  if (currentList) {
-    while (currentListLevel > 0) {
-      processedLines.push("</ul>");
-      currentListLevel--;
-    }
-    processedLines.push("</ul>");
-  }
-
-  return processedLines.join("\n");
-});
+// Summaries now come back as trusted HTML strings from the API
 
 // Calculate user engagement statistics
 const userEngagement = computed(() => {
@@ -353,10 +213,47 @@ const columns: DataTableColumns<ResultItem> = [
     key: "channel_name",
     width: 100,
     render(row) {
-      return h(
+      const tag = h(
         NTag,
         { size: "small" },
         { default: () => `#${row.channel_name || "unknown"}` }
+      );
+      const href = buildSlackPermalink(
+        row.channel_id,
+        row.ts as string,
+        row.thread_root_ts as string | undefined
+      );
+      const hasThread = !!row.thread_root_ts && row.thread_root_ts !== row.ts;
+      const tooltipText = hasThread
+        ? "Open thread in Slack"
+        : "Open message in Slack";
+      const anchor = h(
+        "a",
+        {
+          href,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          style: "display: inline-flex; align-items: center;",
+          "aria-label": tooltipText,
+          title: tooltipText,
+        },
+        [
+          h(
+            NIcon,
+            { size: 16, color: "#000" },
+            { default: () => h(hasThread ? ChatbubblesOutline : OpenOutline) }
+          ),
+        ]
+      );
+      const iconLink = h(
+        NTooltip,
+        { delay: 0, placement: "top" },
+        { trigger: () => anchor, default: () => tooltipText }
+      );
+      return h(
+        "div",
+        { style: "display: inline-flex; align-items: center; gap: 6px;" },
+        [tag, iconLink]
       );
     },
   },
@@ -383,17 +280,6 @@ const columns: DataTableColumns<ResultItem> = [
                   "display: flex; align-items: flex-start; gap: 6px; cursor: pointer; width: 100%",
               },
               [
-                hasThread
-                  ? h(
-                      NIcon,
-                      {
-                        size: 14,
-                        color: "var(--n-primary-color)",
-                        style: "flex-shrink: 0; margin-top: 2px",
-                      },
-                      { default: () => h(ChatbubblesOutline) }
-                    )
-                  : null,
                 h(
                   NEllipsis,
                   {
@@ -420,7 +306,7 @@ const columns: DataTableColumns<ResultItem> = [
                 "div",
                 {
                   style:
-                    "border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: var(--n-color); max-height: 400px; overflow: auto; min-width: 400px",
+                    "border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: var(--n-color); max-height: 680px; overflow: auto; min-width: 400px",
                 },
                 [
                   h("div", { style: "padding: 6px 8px; border-radius: 6px" }, [
@@ -722,7 +608,11 @@ function closeSummaryModal() {
         </template>
 
         <template v-else-if="summaryText">
-          <div class="summary-content" v-html="parsedSummary"></div>
+          <div class="summary-tip">
+            <strong>Tip:</strong> you can copy something from the summary and
+            search again to find the relevant Slack messages
+          </div>
+          <div class="summary-content" v-html="summaryText"></div>
         </template>
       </div>
 
@@ -847,6 +737,17 @@ function closeSummaryModal() {
   flex-direction: column;
   justify-content: center;
   align-items: center;
+}
+
+.summary-tip {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--n-color);
+  border: 1px dashed #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--n-text-color-2);
 }
 
 .summary-content {

@@ -37,8 +37,8 @@ function isHighlighted(ts: string) {
 
 // Hardcoded user ID mappings
 const USER_ID_MAPPINGS: Record<string, string> = {
-  'U09934RTP4J': 'TownCrier Bot',
-  'U097861Q495': 'Jay Baxter',
+  U09934RTP4J: "TownCrier Bot",
+  U097861Q495: "Jay Baxter",
 };
 
 function formatAuthor(author: string): string {
@@ -49,7 +49,16 @@ function formatAuthor(author: string): string {
 function formatTs(ts: string) {
   const seconds = Number.parseFloat(ts);
   if (Number.isNaN(seconds)) return ts;
-  return new Date(seconds * 1000).toLocaleString();
+  const date = new Date(seconds * 1000);
+  // Render without seconds for a cleaner look
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 </script>
 
@@ -79,12 +88,15 @@ function formatTs(ts: string) {
   border-radius: 8px;
   padding: 8px;
   background: var(--n-color);
-  max-height: 320px;
+  max-height: 540px;
   overflow: auto;
 }
 .msg {
   padding: 6px 8px;
   border-radius: 6px;
+}
+.msg:not(.hl) {
+  background: rgba(255, 255, 255, 0.12);
 }
 .msg + .msg {
   margin-top: 4px;
