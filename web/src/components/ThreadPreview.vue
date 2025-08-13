@@ -35,6 +35,17 @@ function isHighlighted(ts: string) {
   return props.highlight_ts && props.highlight_ts === ts;
 }
 
+// Hardcoded user ID mappings
+const USER_ID_MAPPINGS: Record<string, string> = {
+  'U09934RTP4J': 'TownCrier Bot',
+  'U097861Q495': 'Jay Baxter',
+};
+
+function formatAuthor(author: string): string {
+  if (!author) return author;
+  return USER_ID_MAPPINGS[author] || author;
+}
+
 function formatTs(ts: string) {
   const seconds = Number.parseFloat(ts);
   if (Number.isNaN(seconds)) return ts;
@@ -53,7 +64,7 @@ function formatTs(ts: string) {
         :class="{ hl: isHighlighted(m.ts) }"
       >
         <div class="meta">
-          <span class="author">{{ m.author }}</span>
+          <span class="author">{{ formatAuthor(m.author) }}</span>
           <span class="time">{{ formatTs(m.ts) }}</span>
         </div>
         <div class="text">{{ m.text }}</div>

@@ -63,6 +63,17 @@ const limitOptions = [
   { label: "1000 links", value: 1000 },
 ];
 
+// Hardcoded user ID mappings
+const USER_ID_MAPPINGS: Record<string, string> = {
+  'U09934RTP4J': 'TownCrier Bot',
+  'U097861Q495': 'Jay Baxter',
+};
+
+function formatAuthorName(author: string): string {
+  if (!author) return author;
+  return USER_ID_MAPPINGS[author] || author;
+}
+
 // Table columns
 const columns: DataTableColumns<LinkItem> = [
   {
@@ -101,7 +112,7 @@ const columns: DataTableColumns<LinkItem> = [
         {
           default: () => [
             h(NIcon, { size: 14 }, { default: () => h(PersonOutline) }),
-            h("span", {}, row.author),
+            h("span", {}, formatAuthorName(row.author)),
           ],
         }
       );

@@ -27,6 +27,7 @@ import {
   SparklesOutline,
   CopyOutline,
   ChatbubblesOutline,
+  BarChartOutline,
 } from "@vicons/ionicons5";
 import { format } from "date-fns";
 import { searchMessages, summarizeMessages } from "@/api/client";
@@ -57,62 +58,179 @@ const errorMessage = ref<string | null>(null);
 // Always summarize all results - no longer needed
 // const summarizeCount = ref(30);
 const showSummaryModal = ref(false);
+const showEngagementModal = ref(false);
+
+// Helper function to apply markdown formatting
+function applyMarkdownFormatting(text: string): string {
+  let formatted = text;
+  
+  // Convert bold text (**text** or __text__)
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  formatted = formatted.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  
+  // Convert italic text (*text* or _text_) - be careful not to match list bullets
+  formatted = formatted.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+  formatted = formatted.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>');
+  
+  // Convert inline code (`code`)
+  formatted = formatted.replace(/`(.+?)`/g, '<code>$1</code>');
+  
+  return formatted;
+}
 
 // Parse markdown summary to HTML
 const parsedSummary = computed(() => {
   if (!summaryText.value) return '';
   
-  // Convert markdown bullets to HTML list
   let html = summaryText.value;
   
-  // Check if it's a bulleted list
-  const lines = html.split('\n');
-  const bulletLines = lines.filter(line => line.trim().startsWith('- ') || line.trim().startsWith('* '));
+  // First, escape any HTML to prevent XSS
+  html = html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   
-  if (bulletLines.length > 0) {
-    // Convert to HTML list
-    const listItems = lines.map(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        return `<li>${trimmed.substring(2)}</li>`;
-      } else if (trimmed) {
-        // Non-bullet lines become paragraphs
-        return `<p>${trimmed}</p>`;
-      }
-      return '';
-    }).filter(item => item);
-    
-    // Wrap consecutive list items in <ul>
-    let result = [];
-    let inList = false;
-    
-    for (const item of listItems) {
-      if (item.startsWith('<li>')) {
-        if (!inList) {
-          result.push('<ul>');
-          inList = true;
-        }
-        result.push(item);
-      } else {
-        if (inList) {
-          result.push('</ul>');
-          inList = false;
-        }
-        result.push(item);
-      }
+  // Process lines for lists and paragraphs first (before converting markdown)
+  const lines = html.split('\n');
+  
+  // First pass: analyze content structure
+  let nonBulletLines = 0;
+  let hasBullets = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Count non-bullet, non-empty lines (including those with ** formatting)
+    if (trimmed && !trimmed.match(/^[-*]\s+/)) {
+      nonBulletLines++;
     }
-    
-    if (inList) {
-      result.push('</ul>');
+    if (trimmed.match(/^[-*]\s+/)) {
+      hasBullets = true;
     }
-    
-    html = result.join('\n');
-  } else {
-    // Just convert line breaks to <br> for non-list content
-    html = html.replace(/\n/g, '<br>');
   }
   
-  return html;
+  // Determine if we should bold section headers only (when we have headers + bullets structure)
+  const hasHeaderStructure = nonBulletLines >= 2 && hasBullets;
+  
+  const processedLines = [];
+  let currentList = null;
+  let currentListLevel = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    
+    // Count leading spaces for nested lists (2 or 4 spaces = 1 level)
+    const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length || 0;
+    const nestLevel = Math.floor(leadingSpaces / 2);
+    
+    // Check if it's a bullet point
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    
+    if (bulletMatch) {
+      let content = bulletMatch[1];
+      
+      // Apply markdown formatting to bullet content
+      content = applyMarkdownFormatting(content);
+      
+      // Only bold top-level bullets if we DON'T have a header structure
+      if (!hasHeaderStructure && nestLevel === 0 && !content.includes('<strong>')) {
+        content = `<strong>${content}</strong>`;
+      }
+      
+      // Handle nested lists
+      if (currentList === null) {
+        processedLines.push('<ul class="top-level-list">');
+        currentList = 'ul';
+        currentListLevel = 0;
+      }
+      
+      // Adjust nesting
+      while (currentListLevel < nestLevel) {
+        processedLines.push('<ul style="margin-top: 4px;">');
+        currentListLevel++;
+      }
+      while (currentListLevel > nestLevel) {
+        processedLines.push('</ul>');
+        currentListLevel--;
+      }
+      
+      processedLines.push(`<li>${content}</li>`);
+    } else if (trimmed === '') {
+      // Empty line - close any open list
+      if (currentList) {
+        while (currentListLevel > 0) {
+          processedLines.push('</ul>');
+          currentListLevel--;
+        }
+        processedLines.push('</ul>');
+        currentList = null;
+      }
+      // Skip empty lines
+    } else {
+      // Regular text - close any open list first
+      if (currentList) {
+        while (currentListLevel > 0) {
+          processedLines.push('</ul>');
+          currentListLevel--;
+        }
+        processedLines.push('</ul>');
+        currentList = null;
+      }
+      
+      // Check if it's a heading
+      if (trimmed.startsWith('# ')) {
+        const content = applyMarkdownFormatting(trimmed.substring(2));
+        processedLines.push(`<h3>${content}</h3>`);
+      } else if (trimmed.startsWith('## ')) {
+        const content = applyMarkdownFormatting(trimmed.substring(3));
+        processedLines.push(`<h4>${content}</h4>`);
+      } else if (trimmed.startsWith('### ')) {
+        const content = applyMarkdownFormatting(trimmed.substring(4));
+        processedLines.push(`<h5>${content}</h5>`);
+      } else if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
+        // Bold line that is a title/header
+        const content = trimmed.substring(2, trimmed.length - 2);
+        processedLines.push(`<p><strong>${content}</strong></p>`);
+      } else {
+        // Apply markdown formatting
+        let content = applyMarkdownFormatting(trimmed);
+        
+        // When we have headers + bullets structure, make unformatted non-bullet lines bold as section headers
+        if (hasHeaderStructure && !content.includes('<strong>')) {
+          content = `<strong>${content}</strong>`;
+        }
+        
+        processedLines.push(`<p>${content}</p>`);
+      }
+    }
+  }
+  
+  // Close any remaining open lists
+  if (currentList) {
+    while (currentListLevel > 0) {
+      processedLines.push('</ul>');
+      currentListLevel--;
+    }
+    processedLines.push('</ul>');
+  }
+  
+  return processedLines.join('\n');
+});
+
+// Calculate user engagement statistics
+const userEngagement = computed(() => {
+  const counts = new Map<string, number>();
+  
+  for (const result of sortedResults.value) {
+    const author = formatAuthorName(result.author);
+    counts.set(author, (counts.get(author) || 0) + 1);
+  }
+  
+  // Convert to array and sort by count descending
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+});
+
+// Calculate max count for chart scaling
+const maxMessageCount = computed(() => {
+  return Math.max(...userEngagement.value.map(u => u.count), 1);
 });
 
 // Computed
@@ -132,9 +250,20 @@ const topKOptions = [
 // No longer needed - always summarize all results
 // const summarizeOptions = [];
 
+// Hardcoded user ID mappings
+const USER_ID_MAPPINGS: Record<string, string> = {
+  'U09934RTP4J': 'TownCrier Bot',
+  'U097861Q495': 'Jay Baxter',
+};
+
 // Helper function to format author name
 function formatAuthorName(author: string): string {
   if (!author) return author;
+  
+  // Check for hardcoded user ID mappings first
+  if (USER_ID_MAPPINGS[author]) {
+    return USER_ID_MAPPINGS[author];
+  }
   
   // Handle email format (e.g., john.doe@example.com)
   if (author.includes('@')) {
@@ -486,19 +615,29 @@ function closeSummaryModal() {
             <span>Search Results</span>
             <NBadge v-if="hasResults" :value="results.length" />
           </div>
-          <NButton
-            v-if="hasResults"
-            type="primary"
-            size="small"
-            :disabled="!canSummarize"
-            :loading="summaryLoading"
-            @click="runSummarize"
-          >
-            <template #icon>
-              <NIcon :component="SparklesOutline" />
-            </template>
-            Summarize
-          </NButton>
+          <NSpace v-if="hasResults" :size="8">
+            <NButton
+              size="small"
+              @click="showEngagementModal = true"
+            >
+              <template #icon>
+                <NIcon :component="BarChartOutline" />
+              </template>
+              User Engagement
+            </NButton>
+            <NButton
+              type="primary"
+              size="small"
+              :disabled="!canSummarize"
+              :loading="summaryLoading"
+              @click="runSummarize"
+            >
+              <template #icon>
+                <NIcon :component="SparklesOutline" />
+              </template>
+              Summarize
+            </NButton>
+          </NSpace>
         </div>
       </template>
 
@@ -546,7 +685,7 @@ function closeSummaryModal() {
       v-model:show="showSummaryModal"
       preset="card"
       title="AI Summary"
-      style="width: 600px; max-width: 90vw"
+      style="width: 750px; max-width: 90vw"
       :mask-closable="!summaryLoading"
       :closable="!summaryLoading"
       @after-leave="summaryText = null"
@@ -587,6 +726,62 @@ function closeSummaryModal() {
         </NSpace>
       </template>
     </NModal>
+
+    <!-- User Engagement Modal -->
+    <NModal
+      v-model:show="showEngagementModal"
+      preset="card"
+      title="User Engagement"
+      style="width: 700px; max-width: 90vw"
+      :mask-closable="true"
+      :closable="true"
+    >
+      <div class="engagement-content">
+        <div class="engagement-stats">
+          <NSpace justify="space-between" style="margin-bottom: 20px">
+            <div>
+              <div class="stat-value">{{ userEngagement.length }}</div>
+              <div class="stat-label">Active Users</div>
+            </div>
+            <div>
+              <div class="stat-value">{{ sortedResults.length }}</div>
+              <div class="stat-label">Total Messages</div>
+            </div>
+            <div>
+              <div class="stat-value">{{ (sortedResults.length / Math.max(userEngagement.length, 1)).toFixed(1) }}</div>
+              <div class="stat-label">Avg Messages/User</div>
+            </div>
+          </NSpace>
+        </div>
+        
+        <div class="chart-container">
+          <div class="chart-title">Messages per User</div>
+          <div class="bar-chart">
+            <div
+              v-for="(user, index) in userEngagement.slice(0, 15)"
+              :key="index"
+              class="chart-row"
+            >
+              <div class="user-name">{{ user.name }}</div>
+              <div class="bar-wrapper">
+                <div
+                  class="bar"
+                  :style="{
+                    width: `${(user.count / maxMessageCount) * 100}%`,
+                    background: `hsl(${220 - index * 8}, 70%, 55%)`
+                  }"
+                >
+                  <span class="bar-value">{{ user.count }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="userEngagement.length > 15" class="chart-note">
+            Showing top 15 of {{ userEngagement.length }} users
+          </div>
+        </div>
+      </div>
+    </NModal>
   </div>
 </template>
 
@@ -618,7 +813,7 @@ function closeSummaryModal() {
 }
 
 .summary-modal-content {
-  min-height: 200px;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -628,21 +823,48 @@ function closeSummaryModal() {
 .summary-content {
   line-height: 1.6;
   width: 100%;
-  max-height: 400px;
+  max-height: 480px;
   overflow-y: auto;
-  padding: 16px;
+  padding: 20px;
   background: var(--n-color-embedded);
   border-radius: 6px;
+  font-size: 14px;
 }
 
-.summary-content ul {
-  margin: 0;
+.summary-content ul.top-level-list {
+  margin: 8px 0;
+  padding-left: 0;
+  list-style-type: none;
+}
+
+.summary-content ul.top-level-list > li {
+  position: relative;
   padding-left: 20px;
+}
+
+.summary-content ul.top-level-list > li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  font-weight: bold;
+}
+
+.summary-content ul ul {
+  margin: 4px 0 4px 0;
+  padding-left: 24px;
   list-style-type: disc;
 }
 
+.summary-content ul ul ul {
+  list-style-type: circle;
+}
+
+.summary-content ul ul ul ul {
+  list-style-type: square;
+}
+
 .summary-content li {
-  margin: 8px 0;
+  margin: 6px 0;
   line-height: 1.5;
 }
 
@@ -656,5 +878,137 @@ function closeSummaryModal() {
 
 .summary-content p:last-child {
   margin-bottom: 0;
+}
+
+.summary-content strong {
+  font-weight: 600;
+  color: var(--n-text-color);
+}
+
+.summary-content em {
+  font-style: italic;
+}
+
+.summary-content code {
+  padding: 2px 4px;
+  background: var(--n-code-color);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.summary-content h3 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin: 16px 0 8px 0;
+  color: var(--n-text-color);
+}
+
+.summary-content h4 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 14px 0 6px 0;
+  color: var(--n-text-color);
+}
+
+.summary-content h5 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 12px 0 4px 0;
+  color: var(--n-text-color);
+}
+
+.summary-content h3:first-child,
+.summary-content h4:first-child,
+.summary-content h5:first-child {
+  margin-top: 0;
+}
+
+.engagement-content {
+  padding: 8px 0;
+}
+
+.engagement-stats {
+  text-align: center;
+  padding: 16px;
+  background: var(--n-color-embedded);
+  border-radius: 8px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--n-primary-color);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  margin-top: 4px;
+}
+
+.chart-container {
+  margin-top: 24px;
+}
+
+.chart-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--n-text-color);
+}
+
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-name {
+  flex: 0 0 120px;
+  font-size: 13px;
+  text-align: right;
+  color: var(--n-text-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-wrapper {
+  flex: 1;
+  height: 24px;
+  background: var(--n-color-embedded);
+  border-radius: 4px;
+  position: relative;
+}
+
+.bar {
+  height: 100%;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  transition: width 0.3s ease;
+  min-width: 30px;
+}
+
+.bar-value {
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  text-align: center;
 }
 </style>
