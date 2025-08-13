@@ -714,7 +714,9 @@ function closeSummaryModal() {
         <template v-if="summaryLoading">
           <NSpin size="medium">
             <template #description>
-              Generating summary... (using GPT-5, be patient)
+              Generating summary....
+              <br />
+              (GPT-5 is a lil slow)
             </template>
           </NSpin>
         </template>
