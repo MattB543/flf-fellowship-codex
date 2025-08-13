@@ -64,13 +64,14 @@ const showEngagementModal = ref(false);
 function applyMarkdownFormatting(text: string): string {
   let formatted = text;
   
-  // Convert bold text (**text** or __text__)
+  // Convert bold text (**text** or __text__) - must come before italic to avoid conflicts
   formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   formatted = formatted.replace(/__(.+?)__/g, '<strong>$1</strong>');
   
-  // Convert italic text (*text* or _text_) - be careful not to match list bullets
-  formatted = formatted.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
-  formatted = formatted.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>');
+  // Convert italic text (*text* or _text_) - only if not part of ** bold syntax
+  // Use negative lookbehind/lookahead to avoid matching ** patterns
+  formatted = formatted.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
+  formatted = formatted.replace(/(?<!_)_([^_]+?)_(?!_)/g, '<em>$1</em>');
   
   // Convert inline code (`code`)
   formatted = formatted.replace(/`(.+?)`/g, '<code>$1</code>');
@@ -192,6 +193,7 @@ const parsedSummary = computed(() => {
         let content = applyMarkdownFormatting(trimmed);
         
         // When we have headers + bullets structure, make unformatted non-bullet lines bold as section headers
+        // Note: content already has markdown applied, so ** will have been converted to <strong>
         if (hasHeaderStructure && !content.includes('<strong>')) {
           content = `<strong>${content}</strong>`;
         }
