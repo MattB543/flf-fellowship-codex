@@ -63,34 +63,34 @@ const showEngagementModal = ref(false);
 // Helper function to apply markdown formatting
 function applyMarkdownFormatting(text: string): string {
   let formatted = text;
-  
+
   // Convert bold text (**text** or __text__) - must come before italic to avoid conflicts
-  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  formatted = formatted.replace(/__(.+?)__/g, '<strong>$1</strong>');
-  
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  formatted = formatted.replace(/__(.+?)__/g, "<strong>$1</strong>");
+
   // Convert italic text (*text* or _text_) - only if not part of ** bold syntax
   // Use negative lookbehind/lookahead to avoid matching ** patterns
-  formatted = formatted.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
-  formatted = formatted.replace(/(?<!_)_([^_]+?)_(?!_)/g, '<em>$1</em>');
-  
+  formatted = formatted.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, "<em>$1</em>");
+  formatted = formatted.replace(/(?<!_)_([^_]+?)_(?!_)/g, "<em>$1</em>");
+
   // Convert inline code (`code`)
-  formatted = formatted.replace(/`(.+?)`/g, '<code>$1</code>');
-  
+  formatted = formatted.replace(/`(.+?)`/g, "<code>$1</code>");
+
   return formatted;
 }
 
 // Parse markdown summary to HTML
 const parsedSummary = computed(() => {
-  if (!summaryText.value) return '';
-  
+  if (!summaryText.value) return "";
+
   let html = summaryText.value;
-  
+
   // First, escape any HTML to prevent XSS
-  html = html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  
+  html = html.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
   // Process lines for lists and paragraphs first (before converting markdown)
-  const lines = html.split('\n');
-  
+  const lines = html.split("\n");
+
   // First pass: analyze content structure
   let nonBulletLines = 0;
   let hasBullets = false;
@@ -104,62 +104,66 @@ const parsedSummary = computed(() => {
       hasBullets = true;
     }
   }
-  
+
   // Determine if we should bold section headers only (when we have headers + bullets structure)
   const hasHeaderStructure = nonBulletLines >= 2 && hasBullets;
-  
+
   const processedLines = [];
   let currentList = null;
   let currentListLevel = 0;
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-    
+
     // Count leading spaces for nested lists (2 or 4 spaces = 1 level)
     const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length || 0;
     const nestLevel = Math.floor(leadingSpaces / 2);
-    
+
     // Check if it's a bullet point
     const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
-    
+
     if (bulletMatch) {
       let content = bulletMatch[1];
-      
+
       // Apply markdown formatting to bullet content
       content = applyMarkdownFormatting(content);
-      
+
       // Only bold top-level bullets if we DON'T have a header structure
-      if (!hasHeaderStructure && nestLevel === 0 && !content.includes('<strong>')) {
+      if (
+        !hasHeaderStructure &&
+        nestLevel === 0 &&
+        !content.includes("<strong>")
+      ) {
         content = `<strong>${content}</strong>`;
       }
-      
+
       // Handle nested lists
       if (currentList === null) {
         processedLines.push('<ul class="top-level-list">');
-        currentList = 'ul';
+        currentList = "ul";
         currentListLevel = 0;
       }
-      
+
       // Adjust nesting
       while (currentListLevel < nestLevel) {
         processedLines.push('<ul style="margin-top: 4px;">');
         currentListLevel++;
       }
       while (currentListLevel > nestLevel) {
-        processedLines.push('</ul>');
+        processedLines.push("</ul>");
         currentListLevel--;
       }
-      
+
       processedLines.push(`<li>${content}</li>`);
-    } else if (trimmed === '') {
+    } else if (trimmed === "") {
       // Empty line - close any open list
       if (currentList) {
         while (currentListLevel > 0) {
-          processedLines.push('</ul>');
+          processedLines.push("</ul>");
           currentListLevel--;
         }
-        processedLines.push('</ul>');
+        processedLines.push("</ul>");
         currentList = null;
       }
       // Skip empty lines
@@ -167,63 +171,67 @@ const parsedSummary = computed(() => {
       // Regular text - close any open list first
       if (currentList) {
         while (currentListLevel > 0) {
-          processedLines.push('</ul>');
+          processedLines.push("</ul>");
           currentListLevel--;
         }
-        processedLines.push('</ul>');
+        processedLines.push("</ul>");
         currentList = null;
       }
-      
+
       // Check if it's a heading
-      if (trimmed.startsWith('# ')) {
+      if (trimmed.startsWith("# ")) {
         const content = applyMarkdownFormatting(trimmed.substring(2));
         processedLines.push(`<h3>${content}</h3>`);
-      } else if (trimmed.startsWith('## ')) {
+      } else if (trimmed.startsWith("## ")) {
         const content = applyMarkdownFormatting(trimmed.substring(3));
         processedLines.push(`<h4>${content}</h4>`);
-      } else if (trimmed.startsWith('### ')) {
+      } else if (trimmed.startsWith("### ")) {
         const content = applyMarkdownFormatting(trimmed.substring(4));
         processedLines.push(`<h5>${content}</h5>`);
-      } else if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
-        // Bold line that is a title/header
+      } else if (
+        trimmed.startsWith("**") &&
+        trimmed.endsWith("**") &&
+        trimmed.length > 4
+      ) {
+        // Bold line that is a title/header (must be longer than just ****)
         const content = trimmed.substring(2, trimmed.length - 2);
         processedLines.push(`<p><strong>${content}</strong></p>`);
       } else {
         // Apply markdown formatting
         let content = applyMarkdownFormatting(trimmed);
-        
+
         // When we have headers + bullets structure, make unformatted non-bullet lines bold as section headers
         // Note: content already has markdown applied, so ** will have been converted to <strong>
-        if (hasHeaderStructure && !content.includes('<strong>')) {
+        if (hasHeaderStructure && !content.includes("<strong>")) {
           content = `<strong>${content}</strong>`;
         }
-        
+
         processedLines.push(`<p>${content}</p>`);
       }
     }
   }
-  
+
   // Close any remaining open lists
   if (currentList) {
     while (currentListLevel > 0) {
-      processedLines.push('</ul>');
+      processedLines.push("</ul>");
       currentListLevel--;
     }
-    processedLines.push('</ul>');
+    processedLines.push("</ul>");
   }
-  
-  return processedLines.join('\n');
+
+  return processedLines.join("\n");
 });
 
 // Calculate user engagement statistics
 const userEngagement = computed(() => {
   const counts = new Map<string, number>();
-  
+
   for (const result of sortedResults.value) {
     const author = formatAuthorName(result.author);
     counts.set(author, (counts.get(author) || 0) + 1);
   }
-  
+
   // Convert to array and sort by count descending
   return Array.from(counts.entries())
     .map(([name, count]) => ({ name, count }))
@@ -232,7 +240,7 @@ const userEngagement = computed(() => {
 
 // Calculate max count for chart scaling
 const maxMessageCount = computed(() => {
-  return Math.max(...userEngagement.value.map(u => u.count), 1);
+  return Math.max(...userEngagement.value.map((u) => u.count), 1);
 });
 
 // Computed
@@ -254,31 +262,33 @@ const topKOptions = [
 
 // Hardcoded user ID mappings
 const USER_ID_MAPPINGS: Record<string, string> = {
-  'U09934RTP4J': 'TownCrier Bot',
-  'U097861Q495': 'Jay Baxter',
+  U09934RTP4J: "TownCrier Bot",
+  U097861Q495: "Jay Baxter",
 };
 
 // Helper function to format author name
 function formatAuthorName(author: string): string {
   if (!author) return author;
-  
+
   // Check for hardcoded user ID mappings first
   if (USER_ID_MAPPINGS[author]) {
     return USER_ID_MAPPINGS[author];
   }
-  
+
   // Handle email format (e.g., john.doe@example.com)
-  if (author.includes('@')) {
-    const [localPart] = author.split('@');
-    const parts = localPart.split('.');
+  if (author.includes("@")) {
+    const [localPart] = author.split("@");
+    const parts = localPart.split(".");
     if (parts.length >= 2) {
       const firstName = parts[0];
       const lastName = parts[parts.length - 1];
-      return `${firstName.charAt(0).toUpperCase() + firstName.slice(1)} ${lastName.charAt(0).toUpperCase()}.`;
+      return `${
+        firstName.charAt(0).toUpperCase() + firstName.slice(1)
+      } ${lastName.charAt(0).toUpperCase()}.`;
     }
     return localPart;
   }
-  
+
   // Handle display names
   const parts = author.trim().split(/\s+/);
   if (parts.length === 1) {
@@ -288,7 +298,7 @@ function formatAuthorName(author: string): string {
     const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase();
     return `${firstName} ${lastInitial}.`;
   }
-  
+
   return author;
 }
 
@@ -355,7 +365,7 @@ const columns: DataTableColumns<ResultItem> = [
     key: "text",
     render(row) {
       const hasThread = !!row.thread_root_ts && row.thread_root_ts !== row.ts;
-      
+
       // Always show thread-style tooltip for consistency
       return h(
         NTooltip,
@@ -365,30 +375,36 @@ const columns: DataTableColumns<ResultItem> = [
           contentStyle: "padding: 0",
         },
         {
-          trigger: () => h(
-            "div",
-            { style: "display: flex; align-items: flex-start; gap: 6px; cursor: pointer; width: 100%" },
-            [
-              hasThread ? h(
-                NIcon,
-                { 
-                  size: 14,
-                  color: "var(--n-primary-color)",
-                  style: "flex-shrink: 0; margin-top: 2px"
-                },
-                { default: () => h(ChatbubblesOutline) }
-              ) : null,
-              h(
-                NEllipsis,
-                {
-                  lineClamp: 2,
-                  style: "flex: 1; min-width: 0",
-                  tooltip: false  // Disable built-in tooltip
-                },
-                { default: () => row.text }
-              )
-            ]
-          ),
+          trigger: () =>
+            h(
+              "div",
+              {
+                style:
+                  "display: flex; align-items: flex-start; gap: 6px; cursor: pointer; width: 100%",
+              },
+              [
+                hasThread
+                  ? h(
+                      NIcon,
+                      {
+                        size: 14,
+                        color: "var(--n-primary-color)",
+                        style: "flex-shrink: 0; margin-top: 2px",
+                      },
+                      { default: () => h(ChatbubblesOutline) }
+                    )
+                  : null,
+                h(
+                  NEllipsis,
+                  {
+                    lineClamp: 2,
+                    style: "flex: 1; min-width: 0",
+                    tooltip: false, // Disable built-in tooltip
+                  },
+                  { default: () => row.text }
+                ),
+              ]
+            ),
           default: () => {
             // Show thread preview if in thread, otherwise show single message in thread-style format
             if (hasThread) {
@@ -403,32 +419,39 @@ const columns: DataTableColumns<ResultItem> = [
               return h(
                 "div",
                 {
-                  style: "border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: var(--n-color); max-height: 400px; overflow: auto; min-width: 400px"
+                  style:
+                    "border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: var(--n-color); max-height: 400px; overflow: auto; min-width: 400px",
                 },
                 [
-                  h(
-                    "div",
-                    { style: "padding: 6px 8px; border-radius: 6px" },
-                    [
-                      h(
-                        "div",
-                        { style: "font-size: 12px; color: var(--n-text-color-3); display: flex; gap: 8px" },
-                        [
-                          h("span", { style: "font-weight: 600; color: var(--n-text-color)" }, row.author),
-                          h("span", {}, formatLocalTimeFull(row.ts))
-                        ]
-                      ),
-                      h(
-                        "div",
-                        { style: "margin-top: 2px; white-space: pre-wrap" },
-                        row.text
-                      )
-                    ]
-                  )
+                  h("div", { style: "padding: 6px 8px; border-radius: 6px" }, [
+                    h(
+                      "div",
+                      {
+                        style:
+                          "font-size: 12px; color: var(--n-text-color-3); display: flex; gap: 8px",
+                      },
+                      [
+                        h(
+                          "span",
+                          {
+                            style:
+                              "font-weight: 600; color: var(--n-text-color)",
+                          },
+                          row.author
+                        ),
+                        h("span", {}, formatLocalTimeFull(row.ts)),
+                      ]
+                    ),
+                    h(
+                      "div",
+                      { style: "margin-top: 2px; white-space: pre-wrap" },
+                      row.text
+                    ),
+                  ]),
                 ]
               );
             }
-          }
+          },
         }
       );
     },
@@ -618,10 +641,7 @@ function closeSummaryModal() {
             <NBadge v-if="hasResults" :value="results.length" />
           </div>
           <NSpace v-if="hasResults" :size="8">
-            <NButton
-              size="small"
-              @click="showEngagementModal = true"
-            >
+            <NButton size="small" @click="showEngagementModal = true">
               <template #icon>
                 <NIcon :component="BarChartOutline" />
               </template>
@@ -652,9 +672,7 @@ function closeSummaryModal() {
       <template v-else-if="!hasResults && query">
         <NEmpty description="No results found" style="padding: 40px 0">
           <template #extra>
-            <NButton size="small" @click="query = ''">
-              Clear search
-            </NButton>
+            <NButton size="small" @click="query = ''"> Clear search </NButton>
           </template>
         </NEmpty>
       </template>
@@ -692,11 +710,12 @@ function closeSummaryModal() {
       :closable="!summaryLoading"
       @after-leave="summaryText = null"
     >
-
       <div class="summary-modal-content">
         <template v-if="summaryLoading">
           <NSpin size="medium">
-            <template #description> Generating summary... </template>
+            <template #description>
+              Generating summary... (using GPT-5, be patient)
+            </template>
           </NSpin>
         </template>
 
@@ -750,12 +769,18 @@ function closeSummaryModal() {
               <div class="stat-label">Total Messages</div>
             </div>
             <div>
-              <div class="stat-value">{{ (sortedResults.length / Math.max(userEngagement.length, 1)).toFixed(1) }}</div>
+              <div class="stat-value">
+                {{
+                  (
+                    sortedResults.length / Math.max(userEngagement.length, 1)
+                  ).toFixed(1)
+                }}
+              </div>
               <div class="stat-label">Avg Messages/User</div>
             </div>
           </NSpace>
         </div>
-        
+
         <div class="chart-container">
           <div class="chart-title">Messages per User</div>
           <div class="bar-chart">
@@ -770,7 +795,7 @@ function closeSummaryModal() {
                   class="bar"
                   :style="{
                     width: `${(user.count / maxMessageCount) * 100}%`,
-                    background: `hsl(${220 - index * 8}, 70%, 55%)`
+                    background: `hsl(${220 - index * 8}, 70%, 55%)`,
                   }"
                 >
                   <span class="bar-value">{{ user.count }}</span>
