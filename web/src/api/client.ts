@@ -158,13 +158,27 @@ function toQuery(params: Record<string, string | number | undefined>) {
   return s ? `?${s}` : "";
 }
 
+// Type definitions for document chunks
+export interface DocumentChunk {
+  id: string;
+  content: string;
+  order: number;
+  is_highlighted: boolean;
+  section_title: string;
+  hierarchy_level: number;
+  chunk_type: "header" | "content" | "code" | "table";
+  score: number;
+}
+
 // Type definitions for API responses
 export interface SearchResult {
-  id: number;
-  channel_id: string;
-  channel_name: string | null;
-  user_id: string | null;
-  ts: string;
+  id: number | string; // Can be "doc_123" for full documents or number for chunks/messages
+  source: "slack" | "document";
+  // Slack-specific fields
+  channel_id?: string;
+  channel_name?: string | null;
+  user_id?: string | null;
+  ts?: string;
   text: string;
   author: string;
   score: number;
@@ -175,6 +189,29 @@ export interface SearchResult {
   thread_root_ts?: string; // computed on server
   in_thread?: boolean;
   thread?: ThreadMessage[]; // when includeThreads !== false
+  // Enhanced metadata for both sources
+  metadata?: {
+    // Slack metadata
+    channel_name?: string;
+    user_name?: string;
+    created_at?: string;
+    thread_ts?: string | null;
+    // Document metadata (legacy chunk format)
+    document_title?: string;
+    section_title?: string;
+    chunk_type?: string;
+    has_code?: boolean;
+    has_tables?: boolean;
+    hierarchy_level?: number;
+    // Full document metadata (new format)
+    file_path?: string;
+    total_chunks?: number;
+    highlighted_chunks?: number;
+    primary_chunk_id?: string;
+    chunks?: DocumentChunk[];
+  };
+  // Content can be either message text or document content
+  content?: string;
 }
 
 export interface SearchResponse {
@@ -234,6 +271,14 @@ export async function searchMessages(payload: {
   dateFrom?: string;
   dateTo?: string;
   includeThreads?: boolean; // default true on server
+  // New advanced search parameters
+  sources?: Array<"slack" | "document">;
+  includeDocumentSummaries?: boolean;
+  rerank?: boolean;
+  semanticWeight?: number;
+  useAdvancedRetrieval?: boolean;
+  enableContextExpansion?: boolean;
+  enableRecencyBoost?: boolean;
 }): Promise<SearchResponse> {
   // Validate input
   if (!payload.query?.trim()) {
@@ -248,19 +293,19 @@ export async function searchMessages(payload: {
 }
 
 export async function summarizeMessages(
-  messageIds: number[],
+  resultIds: (number | string)[],
   searchQuery?: string
 ): Promise<SummarizeResponse> {
   // Validate input
-  if (!messageIds || messageIds.length === 0) {
-    throw new ApiError(400, "At least one message ID is required");
+  if (!resultIds || resultIds.length === 0) {
+    throw new ApiError(400, "At least one result ID is required");
   }
 
-  if (messageIds.length > 100) {
-    throw new ApiError(400, "Cannot summarize more than 100 messages at once");
+  if (resultIds.length > 100) {
+    throw new ApiError(400, "Cannot summarize more than 100 results at once");
   }
 
-  const payload: { messageIds: number[]; searchQuery?: string } = { messageIds };
+  const payload: { messageIds: (number | string)[]; searchQuery?: string } = { messageIds: resultIds };
   if (searchQuery) {
     payload.searchQuery = searchQuery;
   }
@@ -315,4 +360,82 @@ export function getApiConfig() {
     hasBase: !!API_BASE,
     baseUrl: API_BASE || "(using proxy)",
   };
+}
+
+// Document utility functions
+export interface DocumentData {
+  fullContent: string;
+  chunks: DocumentChunk[];
+  highlightedChunks: DocumentChunk[];
+  primaryChunkId?: string;
+  documentTitle: string;
+  filePath?: string;
+  totalChunks: number;
+  highlightedCount: number;
+}
+
+export function isFullDocument(result: SearchResult): boolean {
+  return (
+    result.source === "document" &&
+    typeof result.id === "string" &&
+    result.id.startsWith("doc_") &&
+    !result.id.startsWith("doc_chunk_") &&
+    !!result.metadata?.chunks &&
+    result.metadata.chunks.length > 0
+  );
+}
+
+export function isLegacyChunk(result: SearchResult): boolean {
+  return result.source === 'document' && 
+         typeof result.id === 'string' && 
+         result.id.startsWith('doc_chunk_');
+}
+
+export function reconstructDocument(result: SearchResult): DocumentData | null {
+  if (!isFullDocument(result) || !result.metadata?.chunks) {
+    return null;
+  }
+
+  // Sort chunks by order
+  const sortedChunks = result.metadata.chunks.sort((a, b) => a.order - b.order);
+  
+  // Identify highlighted chunks
+  const highlightedChunks = sortedChunks.filter(chunk => chunk.is_highlighted);
+  
+  return {
+    fullContent: result.content || result.text,
+    chunks: sortedChunks,
+    highlightedChunks: highlightedChunks,
+    primaryChunkId: result.metadata.primary_chunk_id,
+    documentTitle: result.metadata.document_title || 'Untitled Document',
+    filePath: result.metadata.file_path,
+    totalChunks: result.metadata.total_chunks || sortedChunks.length,
+    highlightedCount: result.metadata.highlighted_chunks || highlightedChunks.length
+  };
+}
+
+export function renderDocumentWithHighlights(documentData: DocumentData) {
+  return documentData.chunks.map(chunk => ({
+    id: chunk.id,
+    content: chunk.content,
+    isHighlighted: chunk.is_highlighted,
+    sectionTitle: chunk.section_title,
+    relevanceScore: chunk.score || 0,
+    hierarchyLevel: chunk.hierarchy_level,
+    chunkType: chunk.chunk_type,
+    className: chunk.is_highlighted ? 'chunk-highlighted' : 'chunk-normal'
+  }));
+}
+
+export function getDocumentStats(result: SearchResult) {
+  if (isFullDocument(result) && result.metadata) {
+    return {
+      totalSections: result.metadata.total_chunks || 0,
+      relevantSections: result.metadata.highlighted_chunks || 0,
+      documentTitle: result.metadata.document_title || 'Untitled Document',
+      filePath: result.metadata.file_path,
+      primaryChunkId: result.metadata.primary_chunk_id
+    };
+  }
+  return null;
 }
